@@ -6,7 +6,7 @@ import { routeAgentRequest } from "agents";
 import { Hono } from "hono";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { createRequestHandler } from "react-router";
-import { app as apiApp, receiveEmail } from "./index";
+import { app as apiApp, receiveEmail, type InboundEmail } from "./index";
 import { EmailMCP } from "./mcp";
 import type { Env } from "./types";
 
@@ -67,9 +67,15 @@ app.use("*", async (c, next) => {
 	try {
 		const { issuer, certsUrl } = getAccessUrls(TEAM_DOMAIN);
 		const JWKS = createRemoteJWKSet(certsUrl);
+		// POLICY_AUD may list several AUD tags separated by commas. A Worker reachable
+		// through both a custom domain and workers.dev sits behind two Access
+		// applications, and each one signs its JWT with its own AUD.
+		const audience = POLICY_AUD.split(",")
+			.map((aud) => aud.trim())
+			.filter(Boolean);
 		await jwtVerify(token, JWKS, {
 			issuer,
-			audience: POLICY_AUD,
+			audience,
 		});
 	} catch {
 		return c.text("Invalid or expired Access token", 403);
@@ -110,11 +116,7 @@ app.all("*", (c) => {
 // Export the Hono app as the default export with an email handler
 export default {
 	fetch: app.fetch,
-	async email(
-		event: { raw: ReadableStream; rawSize: number },
-		env: Env,
-		ctx: ExecutionContext,
-	) {
+	async email(event: InboundEmail, env: Env, ctx: ExecutionContext) {
 		try {
 			await receiveEmail(event, env, ctx);
 		} catch (e) {

@@ -345,7 +345,19 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 	return result;
 }
 
-async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env: Env, ctx: ExecutionContext) {
+/**
+ * The subset of Cloudflare's ForwardableEmailMessage this Worker relies on. The forwarding
+ * members are optional so local development harnesses that only supply the raw stream still
+ * type-check.
+ */
+export type InboundEmail = {
+	raw: ReadableStream;
+	rawSize: number;
+	canBeForwarded?: boolean;
+	forward?: (rcptTo: string, headers?: Headers) => Promise<unknown>;
+};
+
+async function receiveEmail(event: InboundEmail, env: Env, ctx: ExecutionContext) {
 	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
 
@@ -364,7 +376,9 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
 
 	const messageId = crypto.randomUUID();
-	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const mailboxObject = await env.BUCKET.get(`mailboxes/${mailboxId}.json`);
+	if (!mailboxObject) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const mailboxSettings = await mailboxObject.json<{ forwarding?: { enabled?: boolean; email?: string } }>();
 
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
 
@@ -407,6 +421,28 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		method: "POST", headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
 	})).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
+
+	// Deliver a copy to the mailbox's forwarding address. An Email Routing rule targets either a
+	// destination address or a Worker but never both, so a message routed here would otherwise
+	// never reach the user's regular inbox. The destination must be a verified Email Routing
+	// address or forward() rejects.
+	//
+	// Failures are logged and swallowed: the message is already stored, and letting the error
+	// escape would bubble to the email handler in app.ts, which rethrows to trigger a redelivery
+	// or bounce. A misconfigured forwarding address must not bounce mail we accepted.
+	const forwarding = mailboxSettings.forwarding;
+	if (forwarding?.enabled && forwarding.email && event.forward) {
+		const forwardTo = forwarding.email;
+		if (event.canBeForwarded === false) {
+			console.log(`Not forwarding to ${forwardTo}: message is marked as not forwardable`);
+		} else {
+			ctx.waitUntil(
+				event.forward(forwardTo).catch((e) =>
+					console.error(`Forwarding to ${forwardTo} failed:`, (e as Error).message),
+				),
+			);
+		}
+	}
 }
 
 export { app, receiveEmail };

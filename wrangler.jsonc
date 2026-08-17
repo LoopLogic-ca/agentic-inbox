@@ -13,9 +13,15 @@
 		// Production deploys must also define POLICY_AUD and TEAM_DOMAIN.
 		// TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 		// The worker now fails closed outside local development if Access is not configured.
+		//
+		// POLICY_AUD accepts a comma-separated list of Access AUD tags. This Worker is
+		// reachable two ways, and each route sits behind its own Access application:
+		//   267e6b9a... -> "mail" app, guards https://mail.looplogic.ca
+		//   deaf8048... -> "agentic-inbox - Cloudflare Workers" app, guards *.workers.dev
+		// Both must be listed or whichever route is missing returns 403.
 		"DOMAINS": "looplogic.ca",
 		"EMAIL_ADDRESSES": ["aaronr@looplogic.ca"],
-		"POLICY_AUD": "deaf8048794c32331475c58583186a01c674099003f66bc41730616134b47fbb",
+		"POLICY_AUD": "267e6b9a8dcc3a199505d5cc03d852f6dcf422764c0247ac71278f6def176d7b,deaf8048794c32331475c58583186a01c674099003f66bc41730616134b47fbb",
   		"TEAM_DOMAIN": "https://looplogicca.cloudflareaccess.com"
 	},
 	"send_email": [

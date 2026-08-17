@@ -14,7 +14,9 @@
 		// TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 		// The worker now fails closed outside local development if Access is not configured.
 		"DOMAINS": "looplogic.ca",
-		"EMAIL_ADDRESSES": ["aaronr@looplogic.ca"]
+		"EMAIL_ADDRESSES": ["aaronr@looplogic.ca"],
+		"POLICY_AUD": "deaf8048794c32331475c58583186a01c674099003f66bc41730616134b47fbb",
+  		"TEAM_DOMAIN": "https://looplogicca.cloudflareaccess.com"
 	},
 	"send_email": [
 		{

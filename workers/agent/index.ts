@@ -32,6 +32,16 @@ import {
 import { Folders, FOLDER_TOOL_DESCRIPTION, MOVE_FOLDER_TOOL_DESCRIPTION } from "../../shared/folders";
 import type { Env } from "../types";
 
+// Workers AI model used for both the interactive chat agent and auto-drafting.
+//
+// NOTE: @cf/moonshotai/kimi-k2.5 is deprecated and the platform resolves it to
+// kimi-k2.6, which Cloudflare restricted to the Workers Paid plan on 2026-07-28.
+// On the Free plan every agent call returned 403 / error 5035, so the chat panel
+// silently produced nothing and auto-draft logged "Auto-draft failed".
+// glm-4.7-flash is free-plan available and supports the multi-turn tool calling
+// this agent depends on.
+const AGENT_MODEL = "@cf/zai-org/glm-4.7-flash";
+
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.
 function defineTool(def: {
@@ -281,7 +291,7 @@ export class EmailAgent extends AIChatAgent<any> {
 		const systemPrompt = await getSystemPrompt(env, mailboxId);
 
 		const result = streamText({
-			model: workersai("@cf/moonshotai/kimi-k2.5"),
+			model: workersai(AGENT_MODEL),
 			system: systemPrompt,
 			messages: await convertToModelMessages(this.messages),
 			tools,
@@ -463,7 +473,7 @@ Based on the email content and thread context above, draft a reply using draft_r
 
 		try {
 			const result = await generateText({
-				model: workersai("@cf/moonshotai/kimi-k2.5"),
+				model: workersai(AGENT_MODEL),
 				system: systemPrompt,
 				messages: await convertToModelMessages(messages),
 				tools,

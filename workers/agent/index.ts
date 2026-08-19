@@ -40,7 +40,7 @@ import type { Env } from "../types";
 // silently produced nothing and auto-draft logged "Auto-draft failed".
 // glm-4.7-flash is free-plan available and supports the multi-turn tool calling
 // this agent depends on.
-const AGENT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const AGENT_MODEL = "@cf/openai/gpt-oss-120b";
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.

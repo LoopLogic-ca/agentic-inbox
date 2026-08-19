@@ -22,6 +22,8 @@ import {
 	Scripts,
 	ScrollRestoration,
 } from "react-router";
+import CommandPalette from "~/components/CommandPalette";
+import { useCommandPaletteShortcut } from "~/hooks/useCommandPaletteShortcut";
 import { ApiError } from "~/services/api";
 import "./index.css";
 
@@ -113,12 +115,19 @@ export default function App() {
 	// Use useState to ensure each SSR request gets a fresh client while the
 	// browser reuses the same singleton across navigations.
 	const [queryClient] = useState(getQueryClient);
+
+	// Global Ctrl+K binding. Reads the palette store via getState(), so it adds
+	// no subscription here and never re-renders the app tree.
+	useCommandPaletteShortcut();
+
 	return (
 		<QueryClientProvider client={queryClient}>
 			<LinkProvider component={KumoLink}>
 				<TooltipProvider>
 					<Toasty>
 						<Outlet />
+						{/* Renders null until opened, and portals to document.body */}
+						<CommandPalette />
 					</Toasty>
 				</TooltipProvider>
 			</LinkProvider>

@@ -55,7 +55,7 @@ import type { Env } from "../types";
 // Verify any replacement against `npx wrangler ai models` before deploying.
 // An ID that is not in the catalog (e.g. the @cf/google/gemma-4-26b-a4b-it that
 // briefly sat here) fails every call.
-const AGENT_MODEL = "@cf/qwen/qwen2.5-72b-instruct";
+const AGENT_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.

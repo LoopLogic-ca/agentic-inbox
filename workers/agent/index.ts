@@ -38,9 +38,24 @@ import type { Env } from "../types";
 // kimi-k2.6, which Cloudflare restricted to the Workers Paid plan on 2026-07-28.
 // On the Free plan every agent call returned 403 / error 5035, so the chat panel
 // silently produced nothing and auto-draft logged "Auto-draft failed".
-// glm-4.7-flash is free-plan available and supports the multi-turn tool calling
-// this agent depends on.
-const AGENT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+// Do NOT use a reasoning model here until @cloudflare/ai-chat is upgraded.
+// glm-4.7-flash reaches the model fine, but it emits `reasoning-delta` stream
+// chunks. The pinned @cloudflare/ai-chat@0.1.8 builds a `reasoning` message
+// part for those while its React layer has no handling for the type at all
+// (`grep reasoning node_modules/@cloudflare/ai-chat/dist/react.js` → nothing),
+// and applying each chunk throws React error #185 (maximum update depth). The
+// chat then dies with "Failed to parse stream chunk" on every delta.
+// Fixing that properly means @cloudflare/ai-chat >=0.10.2, which requires
+// agents >=0.17.1 (currently 0.7.6) and therefore a Durable Object migration.
+//
+// llama-3.3-70b-instruct-fp8-fast is free-plan available, supports the
+// multi-turn tool calling this agent depends on, and emits only text/tool
+// chunks — no reasoning parts, so nothing hits the unhandled path.
+//
+// Verify any replacement against `npx wrangler ai models` before deploying.
+// An ID that is not in the catalog (e.g. the @cf/google/gemma-4-26b-a4b-it that
+// briefly sat here) fails every call.
+const AGENT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.

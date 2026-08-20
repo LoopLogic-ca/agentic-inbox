@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Button, Pagination, Tooltip } from "@cloudflare/kumo";
+import { Button, Checkbox, Pagination, Tooltip } from "@cloudflare/kumo";
 import {
 	ArchiveIcon,
 	ArrowBendUpLeftIcon,
@@ -21,7 +21,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { Folders } from "shared/folders";
 import { formatListDate } from "shared/dates";
+import BulkActionBar from "~/components/BulkActionBar";
 import MailboxSplitView from "~/components/MailboxSplitView";
+import { useSelectionStore } from "~/hooks/useSelectionStore";
 import { getSnippetText } from "~/lib/utils";
 import {
 	useDeleteEmail,
@@ -186,6 +188,16 @@ export default function EmailListRoute() {
 
 	const isPanelOpen = selectedEmailId !== null || isComposing;
 
+	const checkedIds = useSelectionStore((state) => state.selectedIds);
+	const anchorId = useSelectionStore((state) => state.anchorId);
+	const toggleSelected = useSelectionStore((state) => state.toggle);
+	const selectRange = useSelectionStore((state) => state.selectRange);
+	const setSelection = useSelectionStore((state) => state.setSelection);
+	const clearSelection = useSelectionStore((state) => state.clear);
+
+	const allChecked = emails.length > 0 && emails.every((e) => checkedIds.has(e.id));
+	const someChecked = emails.some((e) => checkedIds.has(e.id));
+
 	// Track folder identity to detect folder changes vs page changes
 	const prevFolderRef = useRef<string | undefined>(undefined);
 
@@ -197,7 +209,10 @@ export default function EmailListRoute() {
 			closePanel();
 			setPage(1);
 		}
-	}, [mailboxId, folder, closePanel]);
+		// Also clear on page changes: the checked ids would refer to messages
+		// that are no longer on screen, leaving an invisible selection armed.
+		clearSelection();
+	}, [mailboxId, folder, page, closePanel, clearSelection]);
 
 	const toggleStar = (e: React.MouseEvent, email: Email) => {
 		e.preventDefault();
@@ -238,7 +253,43 @@ export default function EmailListRoute() {
 		return !email.read;
 	};
 
-	const handleRowClick = (email: Email) => {
+	/**
+	 * Row click. Plain click opens the message; Ctrl/Cmd and Shift turn the
+	 * click into a selection gesture instead, matching Explorer and Gmail.
+	 */
+	const handleRowMouseDown = (
+		e: React.MouseEvent,
+		email: Email,
+		index: number,
+	) => {
+		if (e.shiftKey) {
+			// Shift-click drags a text selection across the rows otherwise.
+			e.preventDefault();
+			const anchorIndex = anchorId
+				? emails.findIndex((item) => item.id === anchorId)
+				: -1;
+			const from = anchorIndex === -1 ? index : anchorIndex;
+			const [start, end] = from <= index ? [from, index] : [index, from];
+			selectRange(emails.slice(start, end + 1).map((item) => item.id));
+			return;
+		}
+
+		if (e.ctrlKey || e.metaKey) {
+			e.preventDefault();
+			toggleSelected(email.id);
+			return;
+		}
+
+		// Not a selection gesture — let the click through to open the message.
+	};
+
+	const handleRowClick = (e: React.MouseEvent, email: Email) => {
+		// Selection gestures were already handled on mousedown.
+		if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+		openEmail(email);
+	};
+
+	const openEmail = (email: Email) => {
 		selectEmail(email.id);
 		if (mailboxId && hasUnread(email)) {
 			if (email.thread_id && email.thread_count && email.thread_count > 1) {
@@ -275,9 +326,31 @@ export default function EmailListRoute() {
 		>
 				{/* Folder header */}
 				<div className="flex items-center justify-between px-4 py-3.5 border-b border-kumo-line shrink-0 md:px-5">
-					<h1 className="text-lg font-semibold text-kumo-default">
-						{folderName}
-					</h1>
+					<div className="flex items-center gap-3">
+						{emails.length > 0 && (
+							<Tooltip
+								content={allChecked ? "Deselect all" : "Select all"}
+								side="bottom"
+								asChild
+							>
+								<Checkbox
+									checked={allChecked}
+									indeterminate={someChecked && !allChecked}
+									onCheckedChange={() => {
+										if (allChecked) {
+											clearSelection();
+										} else {
+											setSelection(emails.map((e) => e.id));
+										}
+									}}
+									aria-label={allChecked ? "Deselect all" : "Select all"}
+								/>
+							</Tooltip>
+						)}
+						<h1 className="text-lg font-semibold text-kumo-default">
+							{folderName}
+						</h1>
+					</div>
 					<div className="flex items-center gap-1">
 						{totalCount > 0 && (
 							<span className="text-sm text-kumo-subtle mr-2 hidden sm:inline">
@@ -307,31 +380,62 @@ export default function EmailListRoute() {
 					</div>
 				</div>
 
+				{/* Bulk actions — only present while something is selected */}
+				{mailboxId && (
+					<BulkActionBar mailboxId={mailboxId} currentFolder={folder} />
+				)}
+
 				{/* Email rows */}
 				<div className="flex-1 overflow-y-auto">
 				{isRefreshing && emails.length === 0 ? (
 					<EmailListSkeleton />
 				) : emails.length > 0 ? (
 						<div>
-							{emails.map((email) => {
+							{emails.map((email, index) => {
 								const isSelected = selectedEmailId === email.id;
+								const isChecked = checkedIds.has(email.id);
 								const snippet = getSnippetText(email.snippet);
 								return (
 									<div
 										key={email.id}
 										role="button"
 										tabIndex={0}
-										onClick={() => handleRowClick(email)}
+										onMouseDown={(e) => handleRowMouseDown(e, email, index)}
+										onClick={(e) => handleRowClick(e, email)}
 										onKeyDown={(e) => {
 											if (e.key === "Enter" || e.key === " ") {
 												e.preventDefault();
-												handleRowClick(email);
+												openEmail(email);
 											}
 										}}
 										className={`group flex items-center gap-3 w-full text-left cursor-pointer transition-colors border-b border-kumo-line px-4 py-2.5 md:px-6 md:py-3 ${
 											isPanelOpen ? "md:px-4 md:py-2.5" : ""
-										} ${isSelected ? "bg-kumo-tint" : "hover:bg-kumo-tint"}`}
+										} ${
+											isChecked
+												? "bg-kumo-fill"
+												: isSelected
+													? "bg-kumo-tint"
+													: "hover:bg-kumo-tint"
+										}`}
 									>
+										{/* Selection checkbox. The wrapper keeps clicks on the
+										    box from also opening the message behind it. */}
+										<div
+											className="shrink-0 flex items-center p-0.5"
+											onMouseDown={(e) => e.stopPropagation()}
+											onClick={(e) => e.stopPropagation()}
+											onKeyDown={(e) => e.stopPropagation()}
+											role="presentation"
+										>
+											<Checkbox
+												checked={isChecked}
+												onCheckedChange={() => toggleSelected(email.id)}
+												aria-label={
+													isChecked ? "Deselect message" : "Select message"
+												}
+											/>
+										</div>
+
 										{/* Unread dot */}
 										<div className="w-2.5 shrink-0 flex justify-center">
 											{hasUnread(email) && (

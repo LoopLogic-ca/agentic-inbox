@@ -6,6 +6,22 @@ import { useEffect } from "react";
 import { useCommandStore } from "~/hooks/useCommandStore";
 
 /**
+ * True when the keystroke landed in somewhere the user is typing. Bare-key
+ * shortcuts must stay inert there, or "?" becomes impossible to type into an
+ * email.
+ */
+function isTypingTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	const tag = target.tagName;
+	return (
+		tag === "INPUT" ||
+		tag === "TEXTAREA" ||
+		tag === "SELECT" ||
+		target.isContentEditable
+	);
+}
+
+/**
  * Binds the global Ctrl+K (Cmd+K on macOS) shortcut that toggles the command
  * palette.
  *
@@ -25,6 +41,20 @@ export function useCommandPaletteShortcut() {
 		const handleKeyDown = (event: KeyboardEvent) => {
 			// Ignore auto-repeat so holding the chord can't strobe the palette.
 			if (event.repeat) return;
+
+			// "?" opens the shortcut reference. Bare key, so it only applies
+			// outside text fields and never with a modifier held.
+			if (
+				event.key === "?" &&
+				!event.ctrlKey &&
+				!event.metaKey &&
+				!event.altKey &&
+				!isTypingTarget(event.target)
+			) {
+				event.preventDefault();
+				useCommandStore.getState().openShortcuts();
+				return;
+			}
 
 			// `code` is the fallback for non-Latin keyboard layouts, where the
 			// physical K key reports a non-"k" `key` value.

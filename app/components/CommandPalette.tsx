@@ -10,6 +10,7 @@ import {
 	MagnifyingGlassIcon,
 	PaperPlaneTiltIcon,
 	PencilSimpleIcon,
+	QuestionIcon,
 	RobotIcon,
 	TrashIcon,
 	TrayIcon,
@@ -154,14 +155,25 @@ export default function CommandPalette() {
 			);
 		}
 
-		list.push({
-			id: "go-mailboxes",
-			section: "Navigation",
-			label: "Go to all mailboxes",
-			keywords: "home accounts switch",
-			icon: <EnvelopeSimpleIcon size={18} />,
-			run: run(() => navigate("/")),
-		});
+		list.push(
+			{
+				id: "go-mailboxes",
+				section: "Navigation",
+				label: "Go to all mailboxes",
+				keywords: "home accounts switch",
+				icon: <EnvelopeSimpleIcon size={18} />,
+				run: run(() => navigate("/")),
+			},
+			{
+				id: "shortcuts",
+				section: "Actions",
+				label: "Keyboard shortcuts",
+				keywords: "help keys hotkeys reference cheatsheet bindings",
+				icon: <QuestionIcon size={18} />,
+				// openShortcuts closes the palette itself, so no run() wrapper.
+				run: () => useCommandStore.getState().openShortcuts(),
+			},
+		);
 
 		return list;
 	}, [mailboxId, navigate, closePalette]);

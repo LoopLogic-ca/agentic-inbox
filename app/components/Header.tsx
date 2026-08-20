@@ -3,9 +3,10 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Button, Input, Tooltip } from "@cloudflare/kumo";
-import { GearSixIcon, ListIcon, MagnifyingGlassIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
+import { GearSixIcon, ListIcon, MagnifyingGlassIcon, QuestionIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { useCommandStore } from "~/hooks/useCommandStore";
 import { useUIStore } from "~/hooks/useUIStore";
 
 export default function Header() {
@@ -16,6 +17,9 @@ export default function Header() {
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
 	const { toggleSidebar, toggleAgentPanel, isAgentPanelOpen } = useUIStore();
+	// Actions only — stable references, so this adds no re-renders here.
+	const openPalette = useCommandStore((state) => state.openPalette);
+	const openShortcuts = useCommandStore((state) => state.openShortcuts);
 
 	// Sync search input with URL query param so it stays populated
 	const urlQuery = searchParams.get("q") || "";
@@ -83,7 +87,7 @@ export default function Header() {
 						onChange={(e) => setSearchQuery(e.target.value)}
 						onKeyDown={handleKeyDown}
 					/>
-					{searchQuery && (
+					{searchQuery ? (
 						<button
 							type="button"
 							onClick={clearSearch}
@@ -91,6 +95,17 @@ export default function Header() {
 							aria-label="Clear search"
 						>
 							<XIcon size={14} />
+						</button>
+					) : (
+						// Advertises the palette and doubles as a mouse trigger for it,
+						// so the shortcut isn't the only way in.
+						<button
+							type="button"
+							onClick={openPalette}
+							aria-label="Open command palette"
+							className="absolute right-2 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded border border-kumo-line bg-kumo-control px-1.5 py-0.5 text-[11px] font-medium text-kumo-subtle transition-colors hover:border-kumo-interact hover:text-kumo-default md:inline-flex"
+						>
+							Ctrl K
 						</button>
 					)}
 				</div>
@@ -119,6 +134,15 @@ export default function Header() {
 			)}
 
 			<div className="flex items-center gap-1 ml-auto shrink-0">
+				<Tooltip content="Keyboard shortcuts" side="bottom" asChild>
+					<Button
+						variant="ghost"
+						shape="square"
+						icon={<QuestionIcon size={20} />}
+						onClick={openShortcuts}
+						aria-label="Keyboard shortcuts"
+					/>
+				</Tooltip>
 				<Tooltip content={isAgentPanelOpen ? "Hide agent panel" : "Show agent panel"} side="bottom" asChild>
 					<Button
 						variant={isAgentPanelOpen ? "secondary" : "ghost"}

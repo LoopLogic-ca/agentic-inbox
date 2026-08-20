@@ -23,6 +23,7 @@ import {
 	ScrollRestoration,
 } from "react-router";
 import CommandPalette from "~/components/CommandPalette";
+import KeyboardShortcutsDialog from "~/components/KeyboardShortcutsDialog";
 import { useCommandPaletteShortcut } from "~/hooks/useCommandPaletteShortcut";
 import { ApiError } from "~/services/api";
 import "./index.css";
@@ -126,8 +127,9 @@ export default function App() {
 				<TooltipProvider>
 					<Toasty>
 						<Outlet />
-						{/* Renders null until opened, and portals to document.body */}
+						{/* Both render null until opened, and portal to document.body */}
 						<CommandPalette />
+						<KeyboardShortcutsDialog />
 					</Toasty>
 				</TooltipProvider>
 			</LinkProvider>

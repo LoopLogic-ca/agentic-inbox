@@ -9,11 +9,15 @@ interface CommandState {
 	isOpen: boolean;
 	/** Text typed into the palette's search input. */
 	query: string;
+	/** Whether the keyboard shortcuts reference dialog is visible. */
+	isShortcutsOpen: boolean;
 
 	openPalette: () => void;
 	closePalette: () => void;
 	togglePalette: () => void;
 	setQuery: (query: string) => void;
+	openShortcuts: () => void;
+	closeShortcuts: () => void;
 }
 
 /**
@@ -32,6 +36,7 @@ interface CommandState {
 export const useCommandStore = create<CommandState>((set) => ({
 	isOpen: false,
 	query: "",
+	isShortcutsOpen: false,
 
 	openPalette: () => set({ isOpen: true, query: "" }),
 
@@ -42,4 +47,9 @@ export const useCommandStore = create<CommandState>((set) => ({
 	togglePalette: () => set((state) => ({ isOpen: !state.isOpen, query: "" })),
 
 	setQuery: (query) => set({ query }),
+
+	// Opening the reference always dismisses the palette, so the two overlays
+	// can never stack on top of each other.
+	openShortcuts: () => set({ isShortcutsOpen: true, isOpen: false, query: "" }),
+	closeShortcuts: () => set({ isShortcutsOpen: false }),
 }));

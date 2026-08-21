@@ -309,7 +309,7 @@ function AgentChatConnected({
 	const { startCompose } = useUIStore();
 
 	const agent = useAgent({ agent: "EmailAgent", name: mailboxId });
-	const { messages, sendMessage, status, setMessages, stop, error } =
+	const { messages, sendMessage, status, setMessages, stop, error, clearHistory } =
 		useAgentChat({ agent });
 	const isStreaming = status === "streaming" || status === "submitted";
 
@@ -364,6 +364,12 @@ function AgentChatConnected({
 								icon={<TrashIcon size={14} />}
 								onClick={() => {
 									if (window.confirm("Clear chat history?")) {
+										// setMessages([]) only empties the local view. The
+										// conversation is persisted in the agent's Durable
+										// Object, so without clearHistory() the old messages
+										// are replayed to the model on the next send and any
+										// corruption in them survives.
+										clearHistory();
 										setMessages([]);
 									}
 								}}

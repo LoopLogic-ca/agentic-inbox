@@ -8,6 +8,7 @@ import {
 	generateText,
 	convertToModelMessages,
 	stepCountIs,
+	type ModelMessage,
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { z } from "zod";
@@ -52,10 +53,50 @@ import type { Env } from "../types";
 // multi-turn tool calling this agent depends on, and emits only text/tool
 // chunks — no reasoning parts, so nothing hits the unhandled path.
 //
-// Verify any replacement against `npx wrangler ai models` before deploying.
-// An ID that is not in the catalog (e.g. the @cf/google/gemma-4-26b-a4b-it that
-// briefly sat here) fails every call.
-const AGENT_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+// The `keyof AiModels` annotation is load-bearing: it is the union of every
+// model ID in the Workers AI catalog, generated into worker-configuration.d.ts
+// by `wrangler types`. Without it a wrong ID compiles and deploys fine and only
+// fails at runtime with a 5007 — which has now happened twice here, once with
+// @cf/google/gemma-4-26b-a4b-it (not a real model) and once with a trailing "e"
+// typo. The provider's own TextGenerationModels type ends in `| (string & {})`,
+// so it accepts any string and catches neither. Keep this annotation; a typo is
+// then a compile error, not a production outage.
+const AGENT_MODEL: keyof AiModels = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+
+/**
+ * Repair the role ordering of a persisted conversation before sending it to the
+ * model.
+ *
+ * Providers require that a `tool` result message is followed by an `assistant`
+ * message. When a turn is interrupted after its tools have run but before the
+ * assistant's closing message is stored — the client disconnects, the stream
+ * errors, or rendering throws — the persisted history ends at the tool results.
+ * The next user message then sits directly after them, and the request fails:
+ *
+ *   400 "Unexpected role 'user' after role 'tool'"
+ *
+ * This is the failure mode that made the agent look model-dependent. The broken
+ * history lives in Durable Object storage, so it survives redeploys and every
+ * model swap: once a turn is interrupted, EVERY later message fails the same
+ * way no matter which model is configured. Repairing the sequence here means a
+ * single bad turn can no longer poison the conversation permanently.
+ */
+export function repairToolMessageOrdering(
+	messages: ModelMessage[],
+): ModelMessage[] {
+	const repaired: ModelMessage[] = [];
+	for (const message of messages) {
+		const previous = repaired[repaired.length - 1];
+		if (message.role === "user" && previous?.role === "tool") {
+			repaired.push({
+				role: "assistant",
+				content: "(The previous turn was interrupted before I replied.)",
+			});
+		}
+		repaired.push(message);
+	}
+	return repaired;
+}
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.
@@ -308,7 +349,9 @@ export class EmailAgent extends AIChatAgent<any> {
 		const result = streamText({
 			model: workersai(AGENT_MODEL),
 			system: systemPrompt,
-			messages: await convertToModelMessages(this.messages),
+			messages: repairToolMessageOrdering(
+				await convertToModelMessages(this.messages),
+			),
 			tools,
 			stopWhen: stepCountIs(5),
 			onFinish,

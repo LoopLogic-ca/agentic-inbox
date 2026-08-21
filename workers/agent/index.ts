@@ -63,39 +63,65 @@ import type { Env } from "../types";
 // then a compile error, not a production outage.
 const AGENT_MODEL: keyof AiModels = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 
+const INTERRUPTED_TURN_NOTE =
+	"(The previous turn was interrupted before I replied.)";
+
 /**
- * Repair the role ordering of a persisted conversation before sending it to the
- * model.
+ * An assistant turn that carries neither text nor a tool call.
  *
- * Providers require that a `tool` result message is followed by an `assistant`
- * message. When a turn is interrupted after its tools have run but before the
- * assistant's closing message is stored — the client disconnects, the stream
- * errors, or rendering throws — the persisted history ends at the tool results.
- * The next user message then sits directly after them, and the request fails:
+ * A stream that dies before producing anything still persists the empty
+ * assistant message it had started. Workers AI rejects those outright:
  *
- *   400 "Unexpected role 'user' after role 'tool'"
+ *   400 "Invalid assistant message: role='assistant' content='' tool_calls=None"
  *
- * This is the failure mode that made the agent look model-dependent. The broken
- * history lives in Durable Object storage, so it survives redeploys and every
- * model swap: once a turn is interrupted, EVERY later message fails the same
- * way no matter which model is configured. Repairing the sequence here means a
- * single bad turn can no longer poison the conversation permanently.
+ * An assistant message holding only tool calls is legitimate and is kept.
  */
-export function repairToolMessageOrdering(
+function isEmptyAssistantMessage(message: ModelMessage): boolean {
+	if (message.role !== "assistant") return false;
+	const { content } = message;
+	if (typeof content === "string") return content.trim() === "";
+	return !content.some(
+		(part) =>
+			(part.type === "text" && part.text.trim() !== "") ||
+			part.type === "tool-call",
+	);
+}
+
+/**
+ * Make a persisted conversation safe to replay to the model.
+ *
+ * Interrupted turns leave two kinds of damage in Durable Object storage, and
+ * both make every subsequent message fail no matter which model is configured:
+ *
+ *   1. Tool results with no assistant reply after them. The next user message
+ *      then follows a `tool` message directly, which providers reject with
+ *      400 "Unexpected role 'user' after role 'tool'".
+ *   2. Empty assistant messages, rejected with 400 "Invalid assistant message".
+ *
+ * Because the damage is persisted, a single interrupted turn otherwise poisons
+ * the conversation permanently — surviving redeploys and model swaps alike.
+ *
+ * Note the `content` shape below: it must be an array of parts, never a bare
+ * string. workers-ai-provider iterates assistant `content` directly, so a
+ * string is walked character by character, matches no part type, and collapses
+ * to the empty assistant message described above.
+ */
+export function sanitizeModelMessages(
 	messages: ModelMessage[],
 ): ModelMessage[] {
-	const repaired: ModelMessage[] = [];
+	const sanitized: ModelMessage[] = [];
 	for (const message of messages) {
-		const previous = repaired[repaired.length - 1];
+		if (isEmptyAssistantMessage(message)) continue;
+		const previous = sanitized[sanitized.length - 1];
 		if (message.role === "user" && previous?.role === "tool") {
-			repaired.push({
+			sanitized.push({
 				role: "assistant",
-				content: "(The previous turn was interrupted before I replied.)",
+				content: [{ type: "text", text: INTERRUPTED_TURN_NOTE }],
 			});
 		}
-		repaired.push(message);
+		sanitized.push(message);
 	}
-	return repaired;
+	return sanitized;
 }
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
@@ -349,7 +375,7 @@ export class EmailAgent extends AIChatAgent<any> {
 		const result = streamText({
 			model: workersai(AGENT_MODEL),
 			system: systemPrompt,
-			messages: repairToolMessageOrdering(
+			messages: sanitizeModelMessages(
 				await convertToModelMessages(this.messages),
 			),
 			tools,

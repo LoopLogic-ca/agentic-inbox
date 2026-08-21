@@ -8,7 +8,6 @@ import {
 	generateText,
 	convertToModelMessages,
 	stepCountIs,
-	type ModelMessage,
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { z } from "zod";
@@ -39,90 +38,9 @@ import type { Env } from "../types";
 // kimi-k2.6, which Cloudflare restricted to the Workers Paid plan on 2026-07-28.
 // On the Free plan every agent call returned 403 / error 5035, so the chat panel
 // silently produced nothing and auto-draft logged "Auto-draft failed".
-// Do NOT use a reasoning model here until @cloudflare/ai-chat is upgraded.
-// glm-4.7-flash reaches the model fine, but it emits `reasoning-delta` stream
-// chunks. The pinned @cloudflare/ai-chat@0.1.8 builds a `reasoning` message
-// part for those while its React layer has no handling for the type at all
-// (`grep reasoning node_modules/@cloudflare/ai-chat/dist/react.js` → nothing),
-// and applying each chunk throws React error #185 (maximum update depth). The
-// chat then dies with "Failed to parse stream chunk" on every delta.
-// Fixing that properly means @cloudflare/ai-chat >=0.10.2, which requires
-// agents >=0.17.1 (currently 0.7.6) and therefore a Durable Object migration.
-//
-// llama-3.3-70b-instruct-fp8-fast is free-plan available, supports the
-// multi-turn tool calling this agent depends on, and emits only text/tool
-// chunks — no reasoning parts, so nothing hits the unhandled path.
-//
-// The `keyof AiModels` annotation is load-bearing: it is the union of every
-// model ID in the Workers AI catalog, generated into worker-configuration.d.ts
-// by `wrangler types`. Without it a wrong ID compiles and deploys fine and only
-// fails at runtime with a 5007 — which has now happened twice here, once with
-// @cf/google/gemma-4-26b-a4b-it (not a real model) and once with a trailing "e"
-// typo. The provider's own TextGenerationModels type ends in `| (string & {})`,
-// so it accepts any string and catches neither. Keep this annotation; a typo is
-// then a compile error, not a production outage.
-const AGENT_MODEL: keyof AiModels = "@cf/mistralai/mistral-small-3.1-24b-instruct";
-
-const INTERRUPTED_TURN_NOTE =
-	"(The previous turn was interrupted before I replied.)";
-
-/**
- * An assistant turn that carries neither text nor a tool call.
- *
- * A stream that dies before producing anything still persists the empty
- * assistant message it had started. Workers AI rejects those outright:
- *
- *   400 "Invalid assistant message: role='assistant' content='' tool_calls=None"
- *
- * An assistant message holding only tool calls is legitimate and is kept.
- */
-function isEmptyAssistantMessage(message: ModelMessage): boolean {
-	if (message.role !== "assistant") return false;
-	const { content } = message;
-	if (typeof content === "string") return content.trim() === "";
-	return !content.some(
-		(part) =>
-			(part.type === "text" && part.text.trim() !== "") ||
-			part.type === "tool-call",
-	);
-}
-
-/**
- * Make a persisted conversation safe to replay to the model.
- *
- * Interrupted turns leave two kinds of damage in Durable Object storage, and
- * both make every subsequent message fail no matter which model is configured:
- *
- *   1. Tool results with no assistant reply after them. The next user message
- *      then follows a `tool` message directly, which providers reject with
- *      400 "Unexpected role 'user' after role 'tool'".
- *   2. Empty assistant messages, rejected with 400 "Invalid assistant message".
- *
- * Because the damage is persisted, a single interrupted turn otherwise poisons
- * the conversation permanently — surviving redeploys and model swaps alike.
- *
- * Note the `content` shape below: it must be an array of parts, never a bare
- * string. workers-ai-provider iterates assistant `content` directly, so a
- * string is walked character by character, matches no part type, and collapses
- * to the empty assistant message described above.
- */
-export function sanitizeModelMessages(
-	messages: ModelMessage[],
-): ModelMessage[] {
-	const sanitized: ModelMessage[] = [];
-	for (const message of messages) {
-		if (isEmptyAssistantMessage(message)) continue;
-		const previous = sanitized[sanitized.length - 1];
-		if (message.role === "user" && previous?.role === "tool") {
-			sanitized.push({
-				role: "assistant",
-				content: [{ type: "text", text: INTERRUPTED_TURN_NOTE }],
-			});
-		}
-		sanitized.push(message);
-	}
-	return sanitized;
-}
+// glm-4.7-flash is free-plan available and supports the multi-turn tool calling
+// this agent depends on.
+const AGENT_MODEL = "@cf/moonshotai/kimi-k2.5";
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.
@@ -375,9 +293,7 @@ export class EmailAgent extends AIChatAgent<any> {
 		const result = streamText({
 			model: workersai(AGENT_MODEL),
 			system: systemPrompt,
-			messages: sanitizeModelMessages(
-				await convertToModelMessages(this.messages),
-			),
+			messages: await convertToModelMessages(this.messages),
 			tools,
 			stopWhen: stepCountIs(5),
 			onFinish,

@@ -17,7 +17,6 @@ import {
 	CheckCircleIcon,
 	StopIcon,
 	PencilSimpleIcon,
-	WarningIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
@@ -309,7 +308,7 @@ function AgentChatConnected({
 	const { startCompose } = useUIStore();
 
 	const agent = useAgent({ agent: "EmailAgent", name: mailboxId });
-	const { messages, sendMessage, status, setMessages, stop, error, clearHistory } =
+	const { messages, sendMessage, status, setMessages, stop } =
 		useAgentChat({ agent });
 	const isStreaming = status === "streaming" || status === "submitted";
 
@@ -364,12 +363,6 @@ function AgentChatConnected({
 								icon={<TrashIcon size={14} />}
 								onClick={() => {
 									if (window.confirm("Clear chat history?")) {
-										// setMessages([]) only empties the local view. The
-										// conversation is persisted in the agent's Durable
-										// Object, so without clearHistory() the old messages
-										// are replayed to the model on the next send and any
-										// corruption in them survives.
-										clearHistory();
 										setMessages([]);
 									}
 								}}
@@ -470,21 +463,6 @@ function AgentChatConnected({
 									<span className="text-xs text-kumo-subtle">
 										Thinking...
 									</span>
-								</div>
-							</div>
-						)}
-						{error && !isStreaming && (
-							<div className="flex gap-2">
-								<div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-kumo-danger-tint text-kumo-danger">
-									<WarningIcon size={12} weight="bold" />
-								</div>
-								<div className="rounded-lg rounded-bl-sm border border-kumo-line bg-kumo-danger-tint px-3 py-2">
-									<p className="text-xs font-medium text-kumo-danger">
-										The agent failed to respond.
-									</p>
-									<p className="mt-0.5 break-words text-xs text-kumo-subtle">
-										{error.message || "Unknown error"}
-									</p>
 								</div>
 							</div>
 						)}
